@@ -1,0 +1,218 @@
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+
+local Window = Fluent:CreateWindow({
+	Title = "Twisted",
+	SubTitle = "BETA",
+	TabWidth = 160,
+	Size = UDim2.fromOffset(500, 350),
+	Acrylic = true,
+	Theme = "Dark",
+	MinimizeKey = Enum.KeyCode.LeftControl
+})
+
+--// TABS
+local Tabs = {
+	Tornado = Window:AddTab({ Title = "Tornado Path", Icon = "wind" }),
+	Visibility = Window:AddTab({ Title = "Visibility", Icon = "eye" }),
+	Movement = Window:AddTab({ Title = "Movement", Icon = "move" })
+}
+
+
+--// SERVICES
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
+
+local LocalPlayer = Players.LocalPlayer
+local stormsFolder = workspace:WaitForChild("storm_related"):WaitForChild("storms")
+
+--// SETTINGS
+local enabled = false
+local fullBright = false
+local noFog = false
+
+--// VISUAL SETTINGS
+local LINE_LENGTH = 2000
+local THICKNESS = 8
+
+--// STORAGE
+local lastPos = {}
+local lines = {}
+
+--// LOOP HANDLE (IMPORTANT FIX)
+local connection = nil
+
+------------------------------------------------
+--// LIGHTING
+------------------------------------------------
+local function applyLighting()
+	if fullBright then
+		Lighting.Brightness = 2
+		Lighting.ClockTime = 14
+		Lighting.GlobalShadows = false
+		Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
+	else
+		Lighting.GlobalShadows = true
+	end
+
+	if noFog then
+		Lighting.FogEnd = 100000
+		local atm = Lighting:FindFirstChildOfClass("Atmosphere")
+		if atm then atm:Destroy() end
+	else
+		Lighting.FogEnd = 1000
+	end
+end
+
+------------------------------------------------
+--// YOUR ORIGINAL LOGIC (UNCHANGED)
+------------------------------------------------
+local function getScan(storm)
+	local rotation = storm:FindFirstChild("rotation")
+	if not rotation then return end
+	return rotation:FindFirstChild("tornado_scan")
+end
+
+local function createLine(storm)
+	local part = Instance.new("Part")
+	part.Anchored = true
+	part.CanCollide = false
+	part.Material = Enum.Material.Neon
+	part.Color = Color3.fromRGB(255, 0, 0)
+	part.Transparency = 0
+	part.Parent = workspace
+	lines[storm] = part
+end
+
+------------------------------------------------
+--// START LOOP (BUTTON ENABLE)
+------------------------------------------------
+local function startLoop()
+	if connection then return end
+
+	connection = RunService.RenderStepped:Connect(function()
+		if not enabled then return end
+
+		local char = LocalPlayer.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not root then return end
+
+		local playerY = root.Position.Y
+
+		for _, storm in ipairs(stormsFolder:GetChildren()) do
+			local scan = getScan(storm)
+			if not scan then continue end
+
+			local pos = scan.Position
+
+			if not lastPos[storm] then
+				lastPos[storm] = pos
+				continue
+			end
+
+			local velocity = pos - lastPos[storm]
+			lastPos[storm] = pos
+
+			if velocity.Magnitude < 0.05 then continue end
+
+			local dir = velocity.Unit
+
+			if not lines[storm] then
+				createLine(storm)
+			end
+
+			local line = lines[storm]
+
+			local flatStart = Vector3.new(pos.X, playerY, pos.Z)
+			local flatEnd = flatStart + Vector3.new(dir.X, 0, dir.Z).Unit * LINE_LENGTH
+
+			line.Size = Vector3.new(THICKNESS, THICKNESS, LINE_LENGTH)
+			line.CFrame =
+				CFrame.new(flatStart, flatEnd) *
+				CFrame.new(0, 0, -LINE_LENGTH/2)
+		end
+	end)
+end
+
+------------------------------------------------
+--// STOP LOOP (CLEAN FIX)
+------------------------------------------------
+local function stopLoop()
+	if connection then
+		connection:Disconnect()
+		connection = nil
+	end
+
+	for _, line in pairs(lines) do
+		if line then line:Destroy() end
+	end
+
+	table.clear(lines)
+	table.clear(lastPos)
+end
+
+------------------------------------------------
+--// BUTTON (FIXED)
+------------------------------------------------
+Tabs.Tornado:AddButton({
+	Title = "Toggle Tornado Path",
+	Description = "Click to enable/disable prediction",
+	Callback = function()
+		enabled = not enabled
+
+		if enabled then
+			startLoop()
+		else
+			stopLoop()
+		end
+	end
+})
+
+------------------------------------------------
+--// VISIBILITY
+------------------------------------------------
+Tabs.Visibility:AddToggle("FullBright", {
+	Title = "Full Bright",
+	Default = false
+}):OnChanged(function(state)
+	fullBright = state
+	applyLighting()
+end)
+
+Tabs.Visibility:AddToggle("NoFog", {
+	Title = "No Fog",
+	Default = false
+}):OnChanged(function(state)
+	noFog = state
+	applyLighting()
+end)
+
+local function giveTeleportTool()
+	local player = game:GetService("Players").LocalPlayer
+	local backpack = player:FindFirstChildOfClass("Backpack")
+	local tool = Instance.new("Tool")
+
+	tool.Name = "Teleport Tool"
+	tool.RequiresHandle = false
+	tool.CanBeDropped = false
+	tool.Parent = backpack
+
+	tool.Activated:Connect(function()
+		local char = player.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not root then return end
+
+		local mouse = player:GetMouse()
+		local pos = mouse.Hit.Position
+
+		root.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0)) * CFrame.new()
+	end)
+end
+
+Tabs.Movement:AddButton({
+	Title = "TP Tool",
+	Description = "Gives a click-to-teleport tool",
+	Callback = function()
+		giveTeleportTool()
+	end
+})
